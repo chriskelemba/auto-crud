@@ -98,7 +98,7 @@ abstract class Controller extends BaseController
 
         return $this->successResponse(
             [$this->resourceName => $this->transform($items)],
-            ucfirst($this->resourceName) . ' fetched successfully.'
+            ucfirst($this->resourceName) . 's fetched successfully.'
         );
     }
 
