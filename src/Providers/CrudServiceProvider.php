@@ -52,35 +52,25 @@ class CrudServiceProvider extends ServiceProvider
     protected function registerCrudRoutes(string $controller)
     {
         $parts = explode('\\', $controller);
-
         $name = array_pop($parts);
 
-        array_shift($parts); array_shift($parts); array_shift($parts);
-
-        $segments = collect($parts)->map(fn ($p) => strtolower($p)); 
-
         $base = preg_replace('/Controller$/i', '', $name);
+        $base = Str::kebab(Str::plural($base));
 
-        $base = Str::kebab($base);
+        Route::get("$base", [$controller, 'index']);
+        Route::post("$base", [$controller, 'store']);
+        Route::get("$base/{id}", [$controller, 'show']);
+        Route::put("$base/{id}", [$controller, 'update']);
+        Route::delete("$base/{id}", [$controller, 'destroy']);
 
-        $segments->push($base);
+        Route::get("$base/trashed", [$controller, 'trashed']);
+        Route::post("$base/{id}/restore", [$controller, 'restore']);
+        Route::delete("$base/{id}/force", [$controller, 'forceDelete']);
 
-        $route = $segments->implode('/');
-
-        Route::get("$route", [$controller, 'index']);
-        Route::post("$route", [$controller, 'store']);
-        Route::get("$route/{id}", [$controller, 'show']);
-        Route::put("$route/{id}", [$controller, 'update']);
-        Route::delete("$route/{id}", [$controller, 'destroy']);
-
-        Route::get("$route/trashed", [$controller, 'trashed']);
-        Route::post("$route/{id}/restore", [$controller, 'restore']);
-        Route::delete("$route/{id}/force", [$controller, 'forceDelete']);
-
-        Route::post("$route/upload", [$controller, 'uploadFile']);
-        Route::post("$route/{id}/upload", [$controller, 'updateFile']);
-        Route::post("$route/uploads/multiple", [$controller, 'uploadMultipleFiles']);
-        Route::get("$route/download/{id}", [$controller, 'downloadFile']);
-        Route::delete("$route/delete-file/{id}", [$controller, 'deleteFile']);
+        Route::post("$base/upload", [$controller, 'uploadFile']);
+        Route::post("$base/{id}/upload", [$controller, 'updateFile']);
+        Route::post("$base/uploads/multiple", [$controller, 'uploadMultipleFiles']);
+        Route::get("$base/download/{id}", [$controller, 'downloadFile']);
+        Route::delete("$base/delete-file/{id}", [$controller, 'deleteFile']);
     }
 }
