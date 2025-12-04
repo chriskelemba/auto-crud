@@ -10,10 +10,6 @@ use Illuminate\Database\QueryException;
 use Illuminate\Validation\ValidationException;
 use Illuminate\Routing\Controller as BaseController;
 
-/**
- * Abstract base controller for CRUD operations.
- * Handles CRUD dynamically with model and optional Resource detection.
- */
 abstract class Controller extends BaseController
 {
     protected Model $model;
@@ -84,7 +80,7 @@ abstract class Controller extends BaseController
     /**
      * Display a listing of the resource
      */
-    public function index(Request $request)
+    public function index()
     {
         $query = $this->model->newQuery();
 
@@ -109,7 +105,7 @@ abstract class Controller extends BaseController
     /**
      * Display the specified resource
      */
-    public function show(Request $request, $id)
+    public function show($id)
     {
         $query = $this->model->newQuery();
 
@@ -125,7 +121,7 @@ abstract class Controller extends BaseController
 
         return $this->successResponse(
             [$this->resourceName => $this->transform($item)],
-            ucfirst($this->resourceName) . ' retrieved successfully.'
+            ucfirst($this->resourceName) . 's retrieved successfully.'
         );
     }
 
@@ -212,7 +208,7 @@ abstract class Controller extends BaseController
     /**
      * Display a listing of trashed (soft deleted) resources
      */
-    public function trashed(Request $request)
+    public function trashed()
     {
         try {
             $query = $this->model->onlyTrashed();
@@ -241,7 +237,7 @@ abstract class Controller extends BaseController
     /**
      * Restore a soft deleted resource
      */
-    public function restore(Request $request, $id)
+    public function restore($id)
     {
         try {
             $item = $this->model->onlyTrashed()->find($id);
@@ -266,7 +262,7 @@ abstract class Controller extends BaseController
     /**
      * Permanently delete a soft deleted resource
      */
-    public function forceDelete(Request $request, $id)
+    public function forceDelete($id)
     {
         try {
             $item = $this->model->withTrashed()->find($id);
@@ -337,15 +333,7 @@ abstract class Controller extends BaseController
             $model = $this->model->findOrFail($id);
             $file = $request->file('file');
 
-            $foreignKey = collect($model->getFillable())
-                ->first(fn($f) => str_ends_with($f, '_id'));
-
-            if (!$foreignKey) {
-                throw new \Exception("Foreign key column not found in model.");
-            }
-
             $model->fill([
-                $foreignKey => $request->input($foreignKey, $model->$foreignKey),
                 'filename' => $file->getClientOriginalName(),
                 'file_size' => $file->getSize(),
                 'file_type' => $file->getClientMimeType(),
@@ -376,18 +364,6 @@ abstract class Controller extends BaseController
             ]);
 
             $files = $request->file('files');
-            
-            // Find the foreign key column
-            $foreignKey = collect($this->model->getFillable())->first(fn($f) => str_ends_with($f, '_id'));
-            if (!$foreignKey) {
-                throw new \Exception("Foreign key column not found in model.");
-            }
-
-            // Validate foreign key value is provided
-            $foreignKeyValue = $request->input($foreignKey);
-            if (!$foreignKeyValue) {
-                return $this->errorResponse("Field '{$foreignKey}' is required", 422);
-            }
 
             $uploadedFiles = [];
             $errors = [];
@@ -397,7 +373,6 @@ abstract class Controller extends BaseController
                     $newModel = $this->model->newInstance();
                     
                     $newModel->fill([
-                        $foreignKey => $foreignKeyValue,
                         'filename' => $file->getClientOriginalName(),
                         'file_size' => $file->getSize(),
                         'file_type' => $file->getClientMimeType(),
@@ -446,7 +421,7 @@ abstract class Controller extends BaseController
     /**
      * Download a file
      */
-    public function downloadFile(Request $request, $id)
+    public function downloadFile($id)
     {
         try {
             $item = $this->model->find($id);
@@ -466,7 +441,7 @@ abstract class Controller extends BaseController
     /**
      * Delete a file
      */
-    public function deleteFile(Request $request, $id)
+    public function deleteFile($id)
     {
         try {
             $item = $this->model->find($id);
