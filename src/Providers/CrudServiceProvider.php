@@ -17,36 +17,82 @@ class CrudServiceProvider extends ServiceProvider
 
     protected function loadDynamicRoutes()
     {
-        $basePath = app_path('Http/Controllers');
+        $searchPaths = $this->getControllerSearchPaths();
 
-        $files = File::allFiles($basePath);
-
-        Route::prefix('api')->middleware('api')->group(function () use ($files, $basePath) {
-
-            foreach ($files as $file) {
-
-                $class = $this->classFromFile($file, $basePath);
-
-                if (!class_exists($class)) {
+        Route::prefix('api')->middleware('api')->group(function () use ($searchPaths) {
+            foreach ($searchPaths as $searchPath) {
+                if (!File::exists($searchPath['path'])) {
                     continue;
                 }
 
-                if (!is_subclass_of($class, Controller::class)) {
-                    continue;
-                }
+                $files = File::allFiles($searchPath['path']);
 
-                $this->registerCrudRoutes($class);
+                foreach ($files as $file) {
+                    // Skip non-Controller files
+                    if (!Str::endsWith($file->getFilename(), 'Controller.php')) {
+                        continue;
+                    }
+
+                    $class = $this->classFromFile($file, $searchPath);
+
+                    if (!class_exists($class)) {
+                        continue;
+                    }
+
+                    if (!is_subclass_of($class, Controller::class)) {
+                        continue;
+                    }
+
+                    $this->registerCrudRoutes($class);
+                }
             }
         });
     }
 
-    protected function classFromFile($file, $basePath)
+    protected function getControllerSearchPaths(): array
     {
-        $relative = str_replace($basePath, '', $file->getPathname());
+        $paths = [];
 
+        $paths[] = [
+            'path' => app_path('Http/Controllers'),
+            'namespace' => 'App\\Http\\Controllers',
+            'base' => app_path('Http/Controllers'),
+        ];
+
+        $modulesPath = app_path('Modules');
+        if (File::exists($modulesPath)) {
+            $modules = File::directories($modulesPath);
+            
+            foreach ($modules as $module) {
+                $controllersPath = $module . '/Controllers';
+                
+                if (File::exists($controllersPath)) {
+                    $moduleName = basename($module);
+                    $paths[] = [
+                        'path' => $controllersPath,
+                        'namespace' => "App\\Modules\\{$moduleName}\\Controllers",
+                        'base' => $controllersPath,
+                    ];
+                }
+            }
+        }
+
+        $customPaths = config('autocrud.controller_paths', []);
+        foreach ($customPaths as $customPath) {
+            if (File::exists($customPath['path'])) {
+                $paths[] = $customPath;
+            }
+        }
+
+        return $paths;
+    }
+
+    protected function classFromFile($file, array $searchPath)
+    {
+        $relative = str_replace($searchPath['base'], '', $file->getPathname());
         $relative = trim(str_replace(['/', '.php'], ['\\', ''], $relative), '\\');
 
-        return 'App\\Http\\Controllers\\' . $relative;
+        return $searchPath['namespace'] . ($relative ? '\\' . $relative : '');
     }
 
     protected function registerCrudRoutes(string $controller)
@@ -57,20 +103,23 @@ class CrudServiceProvider extends ServiceProvider
         $base = preg_replace('/Controller$/i', '', $name);
         $base = Str::kebab(Str::plural($base));
 
-        Route::get("$base", [$controller, 'index']);
-        Route::post("$base", [$controller, 'store']);
-        Route::get("$base/{id}", [$controller, 'show']);
-        Route::put("$base/{id}", [$controller, 'update']);
-        Route::delete("$base/{id}", [$controller, 'destroy']);
+        // Main CRUD routes
+        Route::get("$base", [$controller, 'index'])->name("$base.index");
+        Route::post("$base", [$controller, 'store'])->name("$base.store");
+        Route::get("$base/{id}", [$controller, 'show'])->name("$base.show");
+        Route::put("$base/{id}", [$controller, 'update'])->name("$base.update");
+        Route::delete("$base/{id}", [$controller, 'destroy'])->name("$base.destroy");
 
-        Route::get("$base/trashed", [$controller, 'trashed']);
-        Route::post("$base/{id}/restore", [$controller, 'restore']);
-        Route::delete("$base/{id}/force", [$controller, 'forceDelete']);
+        // Soft delete routes
+        Route::get("$base/trashed", [$controller, 'trashed'])->name("$base.trashed");
+        Route::post("$base/{id}/restore", [$controller, 'restore'])->name("$base.restore");
+        Route::delete("$base/{id}/force", [$controller, 'forceDelete'])->name("$base.forceDelete");
 
-        Route::post("$base/upload", [$controller, 'uploadFile']);
-        Route::post("$base/{id}/upload", [$controller, 'updateFile']);
-        Route::post("$base/uploads/multiple", [$controller, 'uploadMultipleFiles']);
-        Route::get("$base/download/{id}", [$controller, 'downloadFile']);
-        Route::delete("$base/delete-file/{id}", [$controller, 'deleteFile']);
+        // File handling routes
+        Route::post("$base/upload", [$controller, 'uploadFile'])->name("$base.upload");
+        Route::post("$base/{id}/upload", [$controller, 'updateFile'])->name("$base.updateFile");
+        Route::post("$base/uploads/multiple", [$controller, 'uploadMultipleFiles'])->name("$base.uploadMultiple");
+        Route::get("$base/download/{id}", [$controller, 'downloadFile'])->name("$base.download");
+        Route::delete("$base/delete-file/{id}", [$controller, 'deleteFile'])->name("$base.deleteFile");
     }
 }
