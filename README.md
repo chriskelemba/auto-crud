@@ -1,8 +1,8 @@
-# AutoCrud – Zero-Code CRUD Generator for Laravel
+# Auto Crud – Zero-Code CRUD Generator for Laravel
 
 ![Auto CRUD](images/auto-crud.png)
 
-**AutoCrud** is a powerful Laravel package that gives you fully functional RESTful APIs, soft deletes, and file upload/download endpoints — **with just an empty controller**.
+**Auto Crud** is a powerful Laravel package that gives you fully functional RESTful APIs, soft deletes, and file upload/download endpoints — **with just an empty controller**.
 
 No routes file changes.  
 No repetitive controller methods.  
