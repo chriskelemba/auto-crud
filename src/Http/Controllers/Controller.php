@@ -38,13 +38,50 @@ abstract class Controller extends BaseController
 
         $controller = class_basename(static::class);
         $modelName = Str::replaceLast('Controller', '', $controller);
-        $modelClass = "App\\Models\\{$modelName}";
+        
+        // Get the full namespace of the controller
+        $controllerNamespace = get_class($this);
+        
+        // Try to find the model in multiple locations
+        $modelClass = $this->resolveModelClass($controllerNamespace, $modelName);
 
         if (!class_exists($modelClass)) {
-            throw new \Exception("Model {$modelClass} not found.");
+            throw new \Exception("Model {$modelClass} not found. Please ensure the model exists or define a protected \$model property in your controller.");
         }
 
         $this->model = new $modelClass;
+    }
+
+    /**
+     * Resolve the model class from various possible locations
+     */
+    protected function resolveModelClass(string $controllerNamespace, string $modelName): string
+    {
+        if (preg_match('/^(.+)\\\\Controllers\\\\/', $controllerNamespace, $matches)) {
+            $baseNamespace = $matches[1];
+
+            $modelClass = "{$baseNamespace}\\{$modelName}";
+            if (class_exists($modelClass)) {
+                return $modelClass;
+            }
+
+            $modelClass = "{$baseNamespace}\\Models\\{$modelName}";
+            if (class_exists($modelClass)) {
+                return $modelClass;
+            }
+        }
+
+        $modelClass = "App\\Models\\{$modelName}";
+        if (class_exists($modelClass)) {
+            return $modelClass;
+        }
+
+        $modelClass = "App\\{$modelName}";
+        if (class_exists($modelClass)) {
+            return $modelClass;
+        }
+
+        return "App\\Models\\{$modelName}";
     }
 
     /**
@@ -54,8 +91,28 @@ abstract class Controller extends BaseController
     {
         $this->resourceName = $this->resourceName ?? Str::camel(class_basename($this->model));
         
-        $possibleResource = "App\\Http\\Resources\\" . class_basename($this->model) . "Resource";
-        $this->resourceClass = class_exists($possibleResource) ? $possibleResource : null;
+        $modelBaseName = class_basename($this->model);
+        $resourceName = "{$modelBaseName}Resource";
+
+        $modelNamespace = get_class($this->model);
+
+        if (preg_match('/^(.+)\\\\(?:Models\\\\)?/', $modelNamespace, $matches)) {
+            $baseNamespace = rtrim($matches[1], '\\');
+            $possibleResource = "{$baseNamespace}\\Resources\\{$resourceName}";
+            
+            if (class_exists($possibleResource)) {
+                $this->resourceClass = $possibleResource;
+                return;
+            }
+        }
+
+        $possibleResource = "App\\Http\\Resources\\{$resourceName}";
+        if (class_exists($possibleResource)) {
+            $this->resourceClass = $possibleResource;
+            return;
+        }
+
+        $this->resourceClass = null;
     }
 
     /**
@@ -213,12 +270,10 @@ abstract class Controller extends BaseController
         try {
             $query = $this->model->onlyTrashed();
 
-            // Eager load relations
             if (!empty($this->with)) {
                 $query->with($this->with);
             }
 
-            // Apply ordering if specified
             if ($this->orderBy) {
                 $query->orderBy($this->orderBy, 'desc');
             }
