@@ -4,6 +4,7 @@ namespace AutoCrud\Http\Controllers;
 
 use Illuminate\Support\Str;
 use Illuminate\Http\Request;
+use AutoCrud\Services\CrudService;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\QueryException;
@@ -12,16 +13,19 @@ use Illuminate\Routing\Controller as BaseController;
 
 abstract class Controller extends BaseController
 {
+    protected CrudService $service;
     protected Model $model;
     protected array $with = [];
     protected ?string $orderBy = null;
     protected ?string $resourceName = null;
     protected ?string $resourceClass = null;
+    protected array $rules = [];
 
     public function __construct()
     {
         $this->initializeModel();
         $this->initializeResource();
+        $this->service = new CrudService($this->model, $this->rules);
     }
 
     /**
