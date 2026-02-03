@@ -1,0 +1,38 @@
+{
+    "name": "chriskelemba/api-auto-crud",
+    "version": "0.1.0",
+    "description": "A Laravel package providing base controller with CRUD and file operations",
+    "type": "library",
+    "keywords": ["laravel", "controller", "crud", "api"],
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "Chris",
+            "email": "chriskelemba@gmail.com",
+            "homepage": "https://github.com/chriskelemba"
+        }
+    ],
+    "require": {
+        "php": "^8.2",
+        "chriskelemba/jsonapi-response": "^0.1.0",
+        "illuminate/support": "^12.0",
+        "illuminate/database": "^12.0",
+        "illuminate/http": "^12.0",
+        "illuminate/routing": "^12.0",
+        "illuminate/validation": "^12.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "AutoCrud\\": "src/"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "AutoCrud\\Providers\\CrudServiceProvider"
+            ]
+        }
+    },
+    "minimum-stability": "dev",
+    "prefer-stable": true
+}
