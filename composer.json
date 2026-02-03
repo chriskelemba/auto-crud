@@ -1,6 +1,5 @@
 {
     "name": "chriskelemba/auto-crud",
-    "version": "0.1.0",
     "description": "A Laravel package providing base controller with CRUD and file operations",
     "type": "library",
     "keywords": ["laravel", "controller", "crud", "api"],
