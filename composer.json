@@ -14,7 +14,7 @@
     ],
     "require": {
         "php": "^8.2",
-        "chriskelemba/jsonapi-response": "^0.1.0",
+        "chriskelemba/jsonapi-response": "^1.0",
         "illuminate/support": "^12.0",
         "illuminate/database": "^12.0",
         "illuminate/http": "^12.0",
