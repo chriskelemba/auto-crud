@@ -165,8 +165,15 @@ abstract class Controller extends BaseController
                 'allowed_fields' => config('autocrud.api.allowed_fields', []),
             ]);
 
-            $perPage = (int) $request->integer('per_page', (int) config('autocrud.api.per_page', 15));
-            $items = $query->paginate($perPage);
+            $perPage = $request->input('page.size');
+            $perPage = is_numeric($perPage)
+                ? (int) $perPage
+                : (int) $request->integer('per_page', (int) config('autocrud.api.per_page', 15));
+
+            $pageNumber = $request->input('page.number');
+            $pageNumber = is_numeric($pageNumber) ? (int) $pageNumber : null;
+
+            $items = $query->paginate($perPage, ['*'], 'page', $pageNumber);
         } else {
             $items = $query->get();
         }
