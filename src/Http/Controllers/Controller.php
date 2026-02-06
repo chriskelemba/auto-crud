@@ -5,12 +5,13 @@ namespace AutoCrud\Http\Controllers;
 use Illuminate\Support\Str;
 use Illuminate\Http\Request;
 use AutoCrud\Services\CrudService;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\QueryException;
-use ChrisKelemba\ResponseApi\JsonApi;
-use Illuminate\Pagination\LengthAwarePaginator;
-use Illuminate\Pagination\Paginator;
+use Illuminate\Validation\ValidationException;
 use Illuminate\Routing\Controller as BaseController;
+use AutoCrud\Support\ResponseFormatter;
+use Illuminate\Contracts\Pagination\Paginator as PaginatorContract;
 
 abstract class Controller extends BaseController
 {
@@ -21,7 +22,7 @@ abstract class Controller extends BaseController
     protected ?string $resourceName = null;
     protected ?string $resourceClass = null;
     protected array $rules = [];
-    protected array $webFields = [];
+    protected ?object $responseFormatter = null;
 
     public function __construct()
     {
@@ -128,6 +129,9 @@ abstract class Controller extends BaseController
     {
         if ($this->resourceClass) {
             $resource = $this->resourceClass;
+            if ($data instanceof PaginatorContract) {
+                return $resource::collection($data);
+            }
             return $data instanceof \Illuminate\Support\Collection
                 ? $resource::collection($data)
                 : new $resource($data);
@@ -143,7 +147,7 @@ abstract class Controller extends BaseController
     /**
      * Display a listing of the resource
      */
-    public function index(Request $request)
+    public function index()
     {
         $query = $this->model->newQuery();
 
@@ -157,35 +161,11 @@ abstract class Controller extends BaseController
             $query->orderBy($this->orderBy, 'desc');
         }
 
-        if ($this->prefersJson($request)) {
-            $query = JsonApi::applyQuery($query, $request, $this->routeBase(), [
-                'allowed_sorts' => config('autocrud.api.allowed_sorts', []),
-                'allowed_filters' => config('autocrud.api.allowed_filters', []),
-                'allowed_includes' => config('autocrud.api.allowed_includes', []),
-                'allowed_fields' => config('autocrud.api.allowed_fields', []),
-            ]);
-
-            $perPage = $request->input('page.size');
-            $perPage = is_numeric($perPage)
-                ? (int) $perPage
-                : (int) $request->integer('per_page', (int) config('autocrud.api.per_page', 15));
-
-            $pageNumber = $request->input('page.number');
-            $pageNumber = is_numeric($pageNumber) ? (int) $pageNumber : null;
-
-            $items = $query->paginate($perPage, ['*'], 'page', $pageNumber);
-        } else {
-            $items = $query->get();
-        }
-
-        if (!$this->prefersJson(request())) {
-            return view('autocrud::crud.index', $this->viewData([
-                'items' => $items,
-            ]));
-        }
+        $perPage = (int) config('autocrud.api.per_page', 10);
+        $items = $query->paginate($perPage);
 
         return $this->successResponse(
-            $items,
+            [$this->resourceName => $this->transform($items)],
             ucfirst($this->resourceName) . 's fetched successfully.'
         );
     }
@@ -204,48 +184,13 @@ abstract class Controller extends BaseController
         $item = $query->find($id);
 
         if (!$item) {
-            if ($this->prefersJson(request())) {
-                return $this->errorResponse('Not found', 404);
-            }
-
-            abort(404);
-        }
-
-        if (!$this->prefersJson(request())) {
-            return view('autocrud::crud.show', $this->viewData([
-                'item' => $item,
-            ]));
+            return $this->errorResponse('Not found', 404);
         }
 
         return $this->successResponse(
-            $item,
+            [$this->resourceName => $this->transform($item)],
             ucfirst($this->resourceName) . 's retrieved successfully.'
         );
-    }
-
-    /**
-     * Show create form (web)
-     */
-    public function create()
-    {
-        return view('autocrud::crud.create', $this->viewData([
-            'item' => $this->model->newInstance(),
-        ]));
-    }
-
-    /**
-     * Show edit form (web)
-     */
-    public function edit($id)
-    {
-        $item = $this->model->find($id);
-        if (!$item) {
-            abort(404);
-        }
-
-        return view('autocrud::crud.edit', $this->viewData([
-            'item' => $item,
-        ]));
     }
 
     /**
@@ -262,22 +207,12 @@ abstract class Controller extends BaseController
             
             $item = $this->model->create($data);
 
-            if (!$this->prefersJson($request)) {
-                return redirect()
-                    ->route($this->webRouteName('index'))
-                    ->with('status', ucfirst($this->resourceName) . ' created successfully.');
-            }
-
             return $this->successResponse(
-                $item,
+                [$this->resourceName => $this->transform($item)],
                 ucfirst($this->resourceName) . ' created successfully.',
                 201
             );
         } catch (QueryException $e) {
-            if (!$this->prefersJson($request)) {
-                return back()->withErrors(['error' => 'Failed to create record'])->withInput();
-            }
-
             return $this->errorResponse('Failed to create record', 500, $e->getMessage());
         }
     }
@@ -291,11 +226,7 @@ abstract class Controller extends BaseController
             $item = $this->model->find($id);
 
             if (!$item) {
-                if ($this->prefersJson($request)) {
-                    return $this->errorResponse('Not found', 404);
-                }
-
-                abort(404);
+                return $this->errorResponse('Not found', 404);
             }
 
             $data = $request->except(['_token', '_method']);
@@ -306,21 +237,11 @@ abstract class Controller extends BaseController
             
             $item->update($data);
 
-            if (!$this->prefersJson($request)) {
-                return redirect()
-                    ->route($this->webRouteName('index'))
-                    ->with('status', ucfirst($this->resourceName) . ' updated successfully.');
-            }
-
             return $this->successResponse(
-                $item,
+                [$this->resourceName => $this->transform($item)],
                 ucfirst($this->resourceName) . ' updated successfully.'
             );
         } catch (QueryException $e) {
-            if (!$this->prefersJson($request)) {
-                return back()->withErrors(['error' => 'Failed to update record'])->withInput();
-            }
-
             return $this->errorResponse('Failed to update record', 500, $e->getMessage());
         }
     }
@@ -334,31 +255,16 @@ abstract class Controller extends BaseController
             $item = $this->model->find($id);
 
             if (!$item) {
-                if ($this->prefersJson($request)) {
-                    return $this->errorResponse('Not found', 404);
-                }
-
-                abort(404);
+                return $this->errorResponse('Not found', 404);
             }
 
             $item->delete();
 
-            if (!$this->prefersJson($request)) {
-                return redirect()
-                    ->route($this->webRouteName('index'))
-                    ->with('status', ucfirst($this->resourceName) . ' deleted successfully.');
-            }
-
             return $this->successResponse(
                 null,
-                ucfirst($this->resourceName) . ' deleted successfully.',
-                204
+                ucfirst($this->resourceName) . ' deleted successfully.'
             );
         } catch (QueryException $e) {
-            if (!$this->prefersJson($request)) {
-                return back()->withErrors(['error' => 'Failed to delete record']);
-            }
-
             return $this->errorResponse('Failed to delete record', 500, $e->getMessage());
         }
     }
@@ -386,7 +292,7 @@ abstract class Controller extends BaseController
             $items = $query->get();
 
             return $this->successResponse(
-                $items,
+                [$this->resourceName => $this->transform($items)],
                 'Trashed ' . $this->resourceName . ' fetched successfully.'
             );
         } catch (\BadMethodCallException $e) {
@@ -409,7 +315,7 @@ abstract class Controller extends BaseController
             $item->restore();
 
             return $this->successResponse(
-                $item,
+                [$this->resourceName => $this->transform($item)],
                 ucfirst($this->resourceName) . ' restored successfully.'
             );
         } catch (\BadMethodCallException $e) {
@@ -435,13 +341,186 @@ abstract class Controller extends BaseController
 
             return $this->successResponse(
                 null,
-                ucfirst($this->resourceName) . ' permanently deleted.',
-                204
+                ucfirst($this->resourceName) . ' permanently deleted.'
             );
         } catch (\BadMethodCallException $e) {
             return $this->errorResponse('Soft deletes not enabled for this model', 400);
         } catch (QueryException $e) {
             return $this->errorResponse('Failed to permanently delete record', 500, $e->getMessage());
+        }
+    }
+
+    /* -------------------------------------------------------------------------
+     |  FILE HANDLING
+     |------------------------------------------------------------------------*/
+
+    /**
+     * Upload a single file
+     */
+    public function uploadFile(Request $request)
+    {
+        try {
+            $request->validate([
+                'file' => 'required|file|max:10240', // 10MB
+            ]);
+
+            $file = $request->file('file');
+            $model = $this->model->newInstance();
+
+            $model->fill([
+                'filename' => $file->getClientOriginalName(),
+                'file_size' => $file->getSize(),
+                'file_type' => $file->getClientMimeType(),
+                'content' => file_get_contents($file->getRealPath()),
+            ]);
+
+            $model->save();
+
+            return $this->successResponse(
+                [$this->resourceName => $this->transform($model)],
+                'File uploaded successfully.'
+            );
+        } catch (\Throwable $e) {
+            Log::error('File upload error: ' . $e->getMessage());
+            return $this->errorResponse('File upload failed', 500, $e->getMessage());
+        }
+    }
+
+    /**
+     * Update an existing file
+     */
+    public function updateFile(Request $request, $id)
+    {
+        try {
+            $request->validate([
+                'file' => 'required|file|max:10240', // 10MB
+            ]);
+
+            $model = $this->model->findOrFail($id);
+            $file = $request->file('file');
+
+            $model->fill([
+                'filename' => $file->getClientOriginalName(),
+                'file_size' => $file->getSize(),
+                'file_type' => $file->getClientMimeType(),
+                'content' => file_get_contents($file->getRealPath()),
+            ]);
+
+            $model->save();
+
+            return $this->successResponse(
+                [$this->resourceName => $this->transform($model)],
+                'File updated successfully.'
+            );
+        } catch (\Throwable $e) {
+            Log::error('File update error: ' . $e->getMessage());
+            return $this->errorResponse('File update failed', 500, $e->getMessage());
+        }
+    }
+
+    /**
+     * Upload multiple files
+     */
+    public function uploadMultipleFiles(Request $request)
+    {
+        try {
+            $request->validate([
+                'files' => 'required|array|min:1',
+                'files.*' => 'required|file|max:10240', // 10MB per file
+            ]);
+
+            $files = $request->file('files');
+
+            $uploadedFiles = [];
+            $errors = [];
+
+            foreach ($files as $index => $file) {
+                try {
+                    $newModel = $this->model->newInstance();
+                    
+                    $newModel->fill([
+                        'filename' => $file->getClientOriginalName(),
+                        'file_size' => $file->getSize(),
+                        'file_type' => $file->getClientMimeType(),
+                        'content' => file_get_contents($file->getRealPath()),
+                    ]);
+
+                    $newModel->save();
+                    $uploadedFiles[] = $this->transform($newModel);
+                    
+                } catch (\Throwable $e) {
+                    Log::error("Failed to upload file at index {$index}: " . $e->getMessage());
+                    $errors[] = [
+                        'file' => $file->getClientOriginalName(),
+                        'index' => $index,
+                        'error' => $e->getMessage()
+                    ];
+                }
+            }
+
+            $response = [
+                $this->resourceName => $uploadedFiles,
+                'total_uploaded' => count($uploadedFiles),
+                'total_requested' => count($files),
+            ];
+
+            if (!empty($errors)) {
+                $response['errors'] = $errors;
+                $response['total_failed'] = count($errors);
+            }
+
+            $message = count($uploadedFiles) . ' file(s) uploaded successfully';
+            if (!empty($errors)) {
+                $message .= ', ' . count($errors) . ' failed';
+            }
+
+            return $this->successResponse($response, $message, empty($errors) ? 200 : 207);
+            
+        } catch (ValidationException $e) {
+            return $this->errorResponse('Validation failed', 422, $e->errors());
+        } catch (\Throwable $e) {
+            Log::error('Multi-file upload error: ' . $e->getMessage());
+            return $this->errorResponse('Multi-file upload failed', 500, $e->getMessage());
+        }
+    }
+
+    /**
+     * Download a file
+     */
+    public function downloadFile($id)
+    {
+        try {
+            $item = $this->model->find($id);
+            
+            if (!$item || !isset($item->content)) {
+                return $this->errorResponse('File not found', 404);
+            }
+
+            return response($item->content)
+                ->header('Content-Type', $item->file_type)
+                ->header('Content-Disposition', 'attachment; filename="' . $item->filename . '"');
+        } catch (\Throwable $e) {
+            return $this->errorResponse('Download failed', 500, $e->getMessage());
+        }
+    }
+
+    /**
+     * Delete a file
+     */
+    public function deleteFile($id)
+    {
+        try {
+            $item = $this->model->find($id);
+            
+            if (!$item) {
+                return $this->errorResponse('File not found', 404);
+            }
+
+            $item->delete();
+            
+            return $this->successResponse(null, 'File deleted successfully.');
+        } catch (\Throwable $e) {
+            return $this->errorResponse('Delete failed', 500, $e->getMessage());
         }
     }
 
@@ -454,17 +533,7 @@ abstract class Controller extends BaseController
      */
     protected function successResponse($data = null, string $message = 'Success', int $code = 200)
     {
-        if ($code === 204) {
-            return JsonApi::response(null, null, null, 204);
-        }
-
-        $document = JsonApi::document($data, $this->routeBase(), request());
-        if (! isset($document['meta']) || ! is_array($document['meta'])) {
-            $document['meta'] = [];
-        }
-        $document['meta']['message'] = $message;
-
-        return JsonApi::response($document, null, null, $code);
+        return $this->getResponseFormatter()->success($data, $message, $code);
     }
 
     /**
@@ -472,46 +541,21 @@ abstract class Controller extends BaseController
      */
     protected function errorResponse(string $message = 'Error', int $code = 400, $errors = null)
     {
-        $detail = is_string($errors) ? $errors : null;
-        $meta = is_array($errors) ? ['errors' => $errors] : [];
-
-        $error = JsonApi::error($code, $message, $detail, null, null, $meta);
-
-        return JsonApi::responseErrors([$error], $code);
+        return $this->getResponseFormatter()->error($message, $code, $errors);
     }
 
-    protected function prefersJson(Request $request): bool
+    protected function getResponseFormatter(): object
     {
-        return $request->expectsJson() || $request->wantsJson() || $request->is('api/*');
-    }
+        if ($this->responseFormatter) {
+            return $this->responseFormatter;
+        }
 
-    protected function viewData(array $data = []): array
-    {
-        $fields = !empty($this->webFields) ? $this->webFields : $this->model->getFillable();
-        $routeBase = $this->routeBase();
+        $class = config('autocrud.response_formatter', ResponseFormatter::class);
 
-        return array_merge([
-            'items' => collect(),
-            'item' => null,
-            'fields' => $fields,
-            'resourceLabel' => Str::headline(Str::singular($routeBase)),
-            'routeBase' => $routeBase,
-            'routeNamePrefix' => config('autocrud.web.route_name_prefix', 'web.'),
-        ], $data);
-    }
+        if (is_string($class) && class_exists($class)) {
+            return $this->responseFormatter = app($class);
+        }
 
-    protected function routeBase(): string
-    {
-        $controller = class_basename(static::class);
-        $base = Str::replaceLast('Controller', '', $controller);
-        return Str::kebab(Str::plural($base));
-    }
-
-    protected function webRouteName(string $action): string
-    {
-        return config('autocrud.web.route_name_prefix', 'web.')
-            . $this->routeBase()
-            . '.'
-            . $action;
+        return $this->responseFormatter = app(ResponseFormatter::class);
     }
 }

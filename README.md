@@ -14,7 +14,8 @@ Just extend one class → instant CRUD.
 ## Features
 
 - 100% automatic CRUD (index, show, store, update, destroy)
-- JSON:API responses (via `chriskelemba/jsonapi-response`)
+- JSON:API-style responses by default
+- Configurable response formatter (no controller edits required)
 - Soft delete support (trashed, restore, force-delete)
 - Built-in file management (single + multiple upload, download, replace)
 - Automatic model & resource detection using naming conventions
@@ -31,7 +32,7 @@ Just extend one class → instant CRUD.
 composer require chriskelemba/api-auto-crud
 ```
 
-This package uses `chriskelemba/jsonapi-response` for API responses.
+This package ships with a JSON:API-style response format by default, and lets you override it without touching controllers.
 
 ---
 
@@ -135,17 +136,76 @@ The route names are prefixed with `web.` by default:
 
 ---
 
-## JSON:API Responses
+## Custom JSON Responses (No Controller Changes)
 
-API responses are formatted using `chriskelemba/jsonapi-response`:
-- top-level `data`, `links`, `meta`, `jsonapi`
-- relationships are included when loaded
-- `?include=` can be used to load and include relations
+AutoCrud returns a JSON:API-style payload by default (including pagination links/meta):
 
-Example:
+```json
+{
+  "data": [],
+  "meta": {
+    "message": "Users fetched successfully.",
+    "pagination": {
+      "current_page": 1,
+      "from": 1,
+      "last_page": 10,
+      "per_page": 10,
+      "to": 10,
+      "total": 100
+    }
+  },
+  "links": {
+    "first": "https://example.test/api/users?page=1",
+    "last": "https://example.test/api/users?page=10",
+    "prev": null,
+    "next": "https://example.test/api/users?page=2"
+  }
+}
+```
+
+### Customize the response without editing controllers
+Create a formatter class in your app:
+
+```php
+<?php
+
+namespace App\Support;
+
+class ApiResponseFormatter
+{
+    public function success($data = null, string $message = 'OK', int $code = 200)
+    {
+        return response()->json([
+            'data' => $data,
+            'meta' => ['message' => $message],
+        ], $code);
+    }
+
+    public function error(string $message = 'Error', int $code = 400, $errors = null)
+    {
+        return response()->json([
+            'errors' => [[
+                'status' => (string) $code,
+                'detail' => $message,
+                'meta' => ['errors' => $errors],
+            ]],
+        ], $code);
+    }
+}
+```
+
+Then update your published config:
+
+```php
+// config/autocrud.php
+'response_formatter' => \App\Support\ApiResponseFormatter::class,
+```
+
+### Default per-page size
+The index endpoint paginates by default (10 per page). You can change it:
 
 ```
-GET /api/users?include=roles
+AUTOCRUD_API_PER_PAGE=10
 ```
 
 ---
@@ -160,7 +220,7 @@ You can configure AutoCrud using environment variables (no config publish requir
 AUTOCRUD_API_ENABLED=true
 AUTOCRUD_API_PREFIX=api
 AUTOCRUD_API_ROUTE_PREFIX=
-AUTOCRUD_API_PER_PAGE=15
+AUTOCRUD_API_PER_PAGE=10
 
 AUTOCRUD_WEB_ENABLED=false
 AUTOCRUD_WEB_PREFIX=
